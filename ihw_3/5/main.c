@@ -5,7 +5,6 @@ pid_t main_pid;
 void reader_proc(int r_id, int N) {
     sleep(r_id);
     srand(time(NULL));
-    // Выбираем книгу, которую хотим прочитать
     int book_num;
     int return_book = 0, was_waiting = 0;
     while (1) {

@@ -5,9 +5,9 @@ pid_t main_pid;
 void reader_proc(int r_id, int N) {
     sleep(r_id);
     srand(time(NULL));
-    // Выбираем книгу, которую хотим прочитать
     int book_num;
     int return_book = 0, was_waiting = 0;
+    struct sembuf buf = {.sem_num = 0, .sem_op = 0, .sem_flg = 0};
     while (1) {
         if (return_book == 0) {
             if (was_waiting == 0) {
@@ -20,26 +20,39 @@ void reader_proc(int r_id, int N) {
             printf("Reader_%d: Возвращаю книгу %d\n", r_id, -book_num);
         }
         // Получаем доступ к переменной window
-        if (sem_wait(r_window_s) == -1) {
-            printf("Ошибка при sem_wait(r_window_s)\n");
+        buf.sem_num = 0;
+        buf.sem_op = -1;
+        buf.sem_flg = 0;
+        if (semop(semid, &buf, 1) < 0) {
+            printf("Can\'t sub 1 from semaphor: main.c 27\n");
+            perror("semop");
             exit(-1);
         }
         // Меняем её значение
-        window[0] = book_num;
+        library_window_answer[0] = book_num;
         // Уведомляем библиотекаря о том, что запрос готов
-        if (sem_post(l_window_s) == -1) {
-            printf("Ошибка при sem_post(l_window_s)\n");
+        buf.sem_num = 1;
+        buf.sem_op = 1;
+        buf.sem_flg = 0;
+        if (semop(semid, &buf, 1) < 0) {
+            printf("Can\'t add 1 to semaphor: main.c 37\n");
             exit(-1);
         }
         // Ждем ответ
-        if (sem_wait(r_answer_s) == -1) {
-            printf("Ошибка при sem_wait(r_answer_s)\n");
+        buf.sem_num = 2;
+        buf.sem_op = -1;
+        buf.sem_flg = 0;
+        if (semop(semid, &buf, 1) < 0) {
+            printf("Can\'t sub 1 from semaphor: main.c 45\n");
             exit(-1);
         }
-        int ans = answer[0];
+        int ans = library_window_answer[N + 1];
         // Отдаем мьютекс
-        if (sem_post(r_window_s) == -1) {
-            printf("Ошибка при sem_post(r_window_s)\n");
+        buf.sem_num = 0;
+        buf.sem_op = 1;
+        buf.sem_flg = 0;
+        if (semop(semid, &buf, 1) < 0) {
+            printf("Can\'t add 1 to semaphor: main.c 54\n");
             exit(-1);
         }
         if (return_book == 1) {
@@ -51,7 +64,7 @@ void reader_proc(int r_id, int N) {
         if (ans == -1) {
             printf("Reader_%d: Книги %d нет. Жду.\n", r_id, book_num);
             was_waiting = 1;
-            while (library[book_num] != 1) {;}
+            while (library_window_answer[book_num] != 1) {;}
         } else {
             int reading = rand() % 3 + 1;
             printf("Reader_%d: Книга %d есть. Читаю %d дн.\n", r_id, book_num, reading);
@@ -65,32 +78,39 @@ void reader_proc(int r_id, int N) {
 }
 
 void librarian_proc(int N) {
+    struct sembuf buf = {.sem_num = 0, .sem_op = 0, .sem_flg = 0};
     while (1) {
         // Ждем, когда кто-то "откроет окно"
-        if (sem_wait(l_window_s) == -1) {
-            printf("Ошибка при sem_wait(l_window_s)\n");
+        buf.sem_num = 1;
+        buf.sem_op = -1;
+        buf.sem_flg = 0;
+        if (semop(semid, &buf, 1) < 0) {
+            printf("Can\'t sub 1 from semaphor: main.c 87\n");
             exit(-1);
         }
         // получаем реквест и обрабатываем его
-        int request = window[0];
+        int request = library_window_answer[0];
         printf("Librarian: ");
         int result = 1;
         if (request > 0) {
-            if (library[request] == 0) {
+            if (library_window_answer[request] == 0) {
                 printf("книги %d нет.\n", request);
                 result = -1;
             } else {
                 printf("книга %d отдана.\n", request);
-                --library[request];
+                --library_window_answer[request];
             }
         } else {
             printf("книга %d получена.\n", -request);
-            ++library[-request];
+            ++library_window_answer[-request];
         }
         // Отдаем ответ
-        answer[0] = result;
-        if (sem_post(r_answer_s) == -1) {
-            printf("Ошибка при sem_post(r_answer_s)\n");
+        library_window_answer[N + 1] = result;
+        buf.sem_num = 2;
+        buf.sem_op = 1;
+        buf.sem_flg = 0;
+        if (semop(semid, &buf, 1) < 0) {
+            printf("Can\'t add 1 to semaphor: main.c 112\n");
             exit(-1);
         }
     }

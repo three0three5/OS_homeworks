@@ -17,9 +17,9 @@
 
 #define PATHNAME_FOR_SEMAPHORES "common.h"
 
-extern int* library_window_answer;
+extern int* library_window_answer; // window, library, answer
 
-extern int semid;
+extern int semid; // window_r, window_l, answer
 
 int open_everything(int N);
 

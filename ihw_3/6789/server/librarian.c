@@ -3,18 +3,18 @@
 #define MAXPENDING 256
 #define BUFSIZE 128
 
-int N, observerSocketSize = 0;
+int N;
 int observerSockets[32];
 int* library;
 unsigned short port_1, port_2, port_3;
 pthread_mutex_t lock, iolock;
 
+// Функция для отправки наблюдателям происходящих событий
 void sendAndForget(char* message) {
-    for (int i = 0; i < observerSocketSize; ++i) {
+    for (int i = 0; i < 32; ++i) {
         if (observerSockets[i] == -1) {
             continue;
         }
-        printf("[info] sending %s", message);
         pthread_mutex_lock(&iolock);
         int result = send(observerSockets[i], message, 128, 0);
         pthread_mutex_unlock(&iolock);
@@ -165,6 +165,8 @@ void* thread_2() {
     }
 }
 
+// Функция для соединения клиентов-наблюдателей с сервером ПО 3 ПОРТУ
+// Максимум 32 активных наблюдателей
 void* connectObserver() {
     int servSock;
     if ((servSock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
@@ -190,9 +192,15 @@ void* connectObserver() {
             printf("SERVER: [WARNING] accept() observer socket failed\n");
             continue;
         }
-        printf("[info]: %d observer\n", observerSocketSize);
-        observerSockets[observerSocketSize++] = clntSock;
-        if (observerSocketSize == 32) {
+        int inserted = 0;
+        for (int i = 0; i < 32; ++i) {
+            if (observerSockets[i] == -1) {
+                observerSockets[i] = clntSock;
+                inserted = 1;
+                break;
+            }
+        }
+        if (!inserted) {
             break;
         }
     }

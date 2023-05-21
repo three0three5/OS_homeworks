@@ -1,10 +1,14 @@
 #include "utils.h"
 
+#define SLEEPTIME 3
+
 int N, book_num, return_book = 0, was_waiting = 0, ID;
 unsigned short port_1, port_2;
 char* servIP;
 int socketToClose = -1;
 
+
+// Функция открывает сокет, отправляет число по порту и закрывает сокет
 void sendToPort(int num, unsigned short port) {
     int book_num[2];
     book_num[0] = num;
@@ -29,6 +33,9 @@ void sendToPort(int num, unsigned short port) {
     close(sock);
 }
 
+// Функция открывает сокет, отправляет число по порту,
+// получает число, и НЕ ЗАКРЫВАЯ сокет возвращает число
+// После вызова этой функции необходимо закрывать сокет socketToClose
 int getFromPort(int num, unsigned short port) {
     int book_num[2];
     book_num[0] = num;
@@ -72,6 +79,7 @@ void handler(int signum) {
     exit(0);
 }
 
+// Проверяет, есть ли книга с таким номером у сервера
 int bookIsHere(int arg) {
     int result = getFromPort(arg, port_2);
     close(socketToClose);
@@ -129,7 +137,7 @@ int main(int argc, char* argv[]) {
                 if (bookIsHere(book_num)) {
                     break;
                 }
-                sleep(1);
+                //sleep(1); // Чтобы не дудосить сервер запросами
             }
         } else {
             return_book = 1;
@@ -142,7 +150,7 @@ int main(int argc, char* argv[]) {
             if (send(socketToClose, vars, sizeof(int) * 2, 0) != sizeof(int) * 2)
                 dieWithError("CLIENT: send() sent a different number of bytes than expected\n");
             close(socketToClose);
-            sleep(5 * reading);
+            sleep(SLEEPTIME * reading);
         }
     }
 }

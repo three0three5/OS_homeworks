@@ -1,11 +1,29 @@
 #include "utils.h"
 
 #define MAXPENDING 256
+#define BUFSIZE 128
 
-int N;
+int N, observerSocketSize = 0;
+int observerSockets[32];
 int* library;
-unsigned short port_1, port_2;
-pthread_mutex_t lock;
+unsigned short port_1, port_2, port_3;
+pthread_mutex_t lock, iolock;
+
+void sendAndForget(char* message) {
+    for (int i = 0; i < observerSocketSize; ++i) {
+        if (observerSockets[i] == -1) {
+            continue;
+        }
+        printf("[info] sending %s", message);
+        pthread_mutex_lock(&iolock);
+        int result = send(observerSockets[i], message, 128, 0);
+        pthread_mutex_unlock(&iolock);
+        if (result == -1) {
+            observerSockets[i] = -1;
+            continue;
+        }
+    }
+}
 
 // Поток для уведомления читателей
 // Использует второй порт для соединения с клиентами
@@ -67,6 +85,7 @@ void* thread_1() {
 // Если получает отрицательное число, то добавляет 1 к
 // library[-n - 1]
 void* thread_2() {
+    char buffToSend[128];
     int servSock;
     if ((servSock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
         dieWithError("SERVER: socket() failed\n");
@@ -94,34 +113,51 @@ void* thread_2() {
 
         printf("SERVER: Подключен клиент %s\n", inet_ntoa(client_struct.sin_addr));
 
-        int shared, bytes;
-        if ((bytes = recv(clntSock, &shared, sizeof(int), 0)) != sizeof(int)) {
+        int shared[2], bytes;
+        if ((bytes = recv(clntSock, shared, sizeof(int) * 2, 0)) != sizeof(int) * 2) {
             printf("SERVER: received %d bytes\n", bytes);
             dieWithError("SERVER: recv() failed\n");
         }
-
-        if (shared > 0) {
-            --shared;
+        int bookWasGiven = 0;
+        if (shared[0] > 0) {
+            snprintf(buffToSend, sizeof(buffToSend), "CLIENT%d: Иду за книгой %d\n", shared[1], shared[0]);
+            sendAndForget(buffToSend);
+            --shared[0];
             // Изменяем/читаем library
             pthread_mutex_lock(&lock);
-            if (library[shared] == 0) {
-                printf("SERVER: Книги %d нет\n", shared + 1);
-                shared = 0;
+            if (library[shared[0]] == 0) {
+                printf("SERVER: Книги %d нет\n", shared[0] + 1);
+                snprintf(buffToSend, sizeof(buffToSend), "SERVER: Книги %d нет\n", shared[0] + 1);
+                sendAndForget(buffToSend);
+                shared[0] = 0;
             } else {
-                --library[shared];
-                printf("SERVER: Книга %d отдана\n", shared + 1);
-                shared = 1;
+                --library[shared[0]];
+                printf("SERVER: Книга %d отдана\n", shared[0] + 1);
+                bookWasGiven = shared[0] + 1;
+                snprintf(buffToSend, sizeof(buffToSend), "SERVER: Книга %d отдана\n", shared[0] + 1);
+                sendAndForget(buffToSend);
+                shared[0] = 1;
             }
             pthread_mutex_unlock(&lock);
-            if (send(clntSock, &shared, sizeof(int), 0) != sizeof(int))
+            if (send(clntSock, shared, sizeof(int) * 2, 0) != sizeof(int) * 2)
                 dieWithError("SERVER: send() failed\n");
+            // Получаем кол-во дней, сколько читает
+            if (bookWasGiven) {
+                if (recv(clntSock, shared, sizeof(int) * 2, 0) < 0)
+                dieWithError("SERVER: recv() failed\n");
+                snprintf(buffToSend, sizeof(buffToSend), "CLIENT%d: Книга %d есть. Читаю %d дн.\n", shared[1], bookWasGiven, shared[0]);
+                sendAndForget(buffToSend);
+            }
+
         } else {
-            shared *= -1;
-            --shared;
+            shared[0] *= -1;
+            --shared[0];
             // Изменяем/читаем library
             pthread_mutex_lock(&lock);
-            ++library[shared];
-            printf("SERVER: Книга %d возвращена\n", shared + 1);
+            ++library[shared[0]];
+            printf("SERVER: Книга %d возвращена\n", shared[0] + 1);
+            snprintf(buffToSend, sizeof(buffToSend), "SERVER: Книга %d возвращена\n", shared[0] + 1);
+            sendAndForget(buffToSend);
             pthread_mutex_unlock(&lock);
         }
 
@@ -129,8 +165,42 @@ void* thread_2() {
     }
 }
 
+void* connectObserver() {
+    int servSock;
+    if ((servSock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+        dieWithError("SERVER: socket() failed\n");
+
+    struct sockaddr_in serv_struct, client_struct;
+    memset(&serv_struct, 0, sizeof(serv_struct));
+    serv_struct.sin_family = AF_INET;
+    serv_struct.sin_addr.s_addr = htonl(INADDR_ANY);
+    serv_struct.sin_port = htons(port_3);
+
+    if (bind(servSock, (struct sockaddr *) &serv_struct, sizeof(serv_struct)) < 0)
+        dieWithError("SERVER: bind() failed\n");
+
+    if (listen(servSock, MAXPENDING) < 0)
+        dieWithError("SERVER: listen() failed\n");
+
+    while (1) {
+        int clntLen, clntSock;
+        clntLen = sizeof(client_struct);
+        if ((clntSock = accept(servSock, (struct sockaddr *) &client_struct,
+                            &clntLen)) < 0) {
+            printf("SERVER: [WARNING] accept() observer socket failed\n");
+            continue;
+        }
+        printf("[info]: %d observer\n", observerSocketSize);
+        observerSockets[observerSocketSize++] = clntSock;
+        if (observerSocketSize == 32) {
+            break;
+        }
+    }
+}
+
 void handler(int signum) {
     printf("SERVER: завершаю работу...\n");
+    sendAndForget("SERVER: завершаю работу...\n");
     free(library);
     pthread_mutex_destroy(&lock);
     exit(0);
@@ -138,8 +208,13 @@ void handler(int signum) {
 
 int main(int argc, char* argv[]) {
     signal(SIGINT, handler);
+    signal(SIGPIPE, SIG_IGN);
 
-    if (argc != 4) {
+    for (int i = 0; i < 32; ++i) {
+        observerSockets[i] = -1;
+    }
+
+    if (argc != 5) {
         printf("SERVER: Wrong arguments\n");
         exit(1);
     }
@@ -151,7 +226,9 @@ int main(int argc, char* argv[]) {
     }
     port_1 = atoi(argv[2]);
     port_2 = atoi(argv[3]);
-    if (port_1 == port_2) {
+    port_3 = atoi(argv[4]);
+
+    if (port_1 == port_2 || port_1 == port_3 || port_2 == port_3) {
         printf("SERVER: No difference\n");
         exit(1);
     }
@@ -166,11 +243,13 @@ int main(int argc, char* argv[]) {
     }
 
     pthread_mutex_init(&lock, NULL);
+    pthread_mutex_init(&iolock, NULL);
 
-    pthread_t first, second;
+    pthread_t first, second, third;
     pthread_create(&first, NULL, thread_2, NULL);
     pthread_create(&second, NULL, thread_1, NULL);
-
+    // Если появился observer - соединяемся с ним
+    pthread_create(&third, NULL, connectObserver, NULL);
     pthread_join(first,NULL);
     pthread_join(second,NULL);
 }

@@ -33,21 +33,18 @@ void* thread_1() {
     // клиент получил SIGINT и отправить пакет
     // или прочитать не удалось
     while (1) {
-        printf("[info]: started 1\n");
         clntLen = sizeof(client_struct);
         if ((clntSock = accept(servSock, (struct sockaddr *) &client_struct,
-                               &clntLen)) < 0)
+                               &clntLen)) < 0) {
             printf("SERVER: [WARNING] accept() failed\n");
             continue;
-        printf("[info]: started 2\n");
+        }
         int shared, bytes;
         if ((bytes = recv(clntSock, &shared, sizeof(int), 0)) != sizeof(int)) {
             printf("SERVER: [WARNING] received %d bytes: recv()\n", bytes);
             close(clntSock);
             continue;
         }
-        printf("[info]: started 3\n");
-        printf("[info]: shared %d\n", shared);
 
         if (shared > 0) {
             --shared;
@@ -56,10 +53,8 @@ void* thread_1() {
             shared = library[shared];
             pthread_mutex_unlock(&lock);
         }
-        printf("[info]: started 4\n");
         if (send(clntSock, &shared, sizeof(int), 0) != sizeof(int))
             printf("SERVER: [WARNING] send() failed\n");
-        printf("[info]: sent\n");
         close(clntSock);
     }
 }

@@ -31,7 +31,6 @@ int getFromPort(int num, unsigned short port) {
     int sock;
     struct sockaddr_in echoServAddr;
     // Отправляем библиотекарю book_num
-    printf("[info] send book_num\n");
     if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
         dieWithError("CLIENT: socket() failed\n");
 
@@ -48,11 +47,9 @@ int getFromPort(int num, unsigned short port) {
 
     // Получение ответа
     int ans;
-    printf("[info] ans\n");
     if ((recv(sock, &ans, sizeof(int), 0)) <= 0)
         dieWithError("CLIENT: recv() failed or connection closed prematurely\n");
     close(sock);
-    printf("[info] ans is %d\n", ans);
     return ans;
 }
 
@@ -71,7 +68,6 @@ void handler(int signum) {
 }
 
 int bookIsHere(int arg) {
-    printf("[info] bookIsHere\n");
     return getFromPort(arg, port_2);
 }
 
@@ -109,6 +105,7 @@ int main(int argc, char* argv[]) {
             sendToPort(book_num, port_1);
             printf("CLIENT: Книга %d возвращена\n", -book_num);
             return_book = 0;
+            sleep(1);
             continue;
         }
         // Получение ответа
@@ -118,11 +115,10 @@ int main(int argc, char* argv[]) {
             printf("CLIENT: Книги %d нет. Жду.\n", book_num);
             was_waiting = 1;
             while (1) {
-                int answer;
-                if (answer = bookIsHere(book_num)) {
+                if (bookIsHere(book_num)) {
                     break;
                 }
-                printf("[info]: %d", answer);
+                sleep(1);
             }
         } else {
             return_book = 1;

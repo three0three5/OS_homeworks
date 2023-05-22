@@ -201,7 +201,7 @@ void* connectObserver() {
             }
         }
         if (!inserted) {
-            break;
+            close(clntSock);
         }
     }
 }

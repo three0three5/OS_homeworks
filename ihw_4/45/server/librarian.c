@@ -99,7 +99,7 @@ void* thread_2() {
             --shared;
             // Изменяем/читаем library
             pthread_mutex_lock(&lock);
-            ++library[shared];
+            library[shared] = 1;
             printf("SERVER: Книга %d возвращена\n", shared + 1);
             pthread_mutex_unlock(&lock);
             shared = 1;
